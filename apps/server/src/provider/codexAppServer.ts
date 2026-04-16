@@ -95,7 +95,9 @@ export function buildCodexInitializeParams() {
 export function killCodexChildProcess(child: ChildProcessWithoutNullStreams): void {
   if (process.platform === "win32" && child.pid !== undefined) {
     try {
-      spawnSync("taskkill", ["/pid", String(child.pid), "/T", "/F"], { stdio: "ignore" });
+      spawnSync("taskkill", ["/pid", String(child.pid), "/T", "/F"], {
+        stdio: "ignore",
+      });
       return;
     } catch {
       // Fall through to direct kill when taskkill is unavailable.
@@ -110,11 +112,13 @@ export async function probeCodexDiscovery(input: {
   readonly homePath?: string;
   readonly cwd: string;
   readonly signal?: AbortSignal;
+  readonly gocodeEnvOverrides?: Record<string, string>;
 }): Promise<CodexDiscoverySnapshot> {
   return await new Promise((resolve, reject) => {
     const child = spawn(input.binaryPath, ["app-server"], {
       env: {
         ...process.env,
+        ...(input.gocodeEnvOverrides ? input.gocodeEnvOverrides : {}),
         ...(input.homePath ? { CODEX_HOME: input.homePath } : {}),
       },
       stdio: ["pipe", "pipe", "pipe"],

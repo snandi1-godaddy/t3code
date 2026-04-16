@@ -29,6 +29,7 @@ import {
 import { compareCliVersions } from "../cliVersion";
 import { makeManagedServerProvider } from "../makeManagedServerProvider";
 import { ClaudeProvider } from "../Services/ClaudeProvider";
+import { buildGocodeEnvOverrides } from "../gocodeEnv";
 import { ServerSettingsService } from "../../serverSettings";
 import { ServerSettingsError } from "@t3tools/contracts";
 
@@ -183,7 +184,10 @@ export function parseClaudeAuthStatusFromOutput(result: CommandResult): {
   const parsedAuth = (() => {
     const trimmed = result.stdout.trim();
     if (!trimmed || (!trimmed.startsWith("{") && !trimmed.startsWith("["))) {
-      return { attemptedJsonParse: false as const, auth: undefined as boolean | undefined };
+      return {
+        attemptedJsonParse: false as const,
+        auth: undefined as boolean | undefined,
+      };
     }
     try {
       return {
@@ -191,7 +195,10 @@ export function parseClaudeAuthStatusFromOutput(result: CommandResult): {
         auth: extractAuthBoolean(JSON.parse(trimmed)),
       };
     } catch {
-      return { attemptedJsonParse: false as const, auth: undefined as boolean | undefined };
+      return {
+        attemptedJsonParse: false as const,
+        auth: undefined as boolean | undefined,
+      };
     }
   })();
 
@@ -465,8 +472,12 @@ function dedupeSlashCommands(
  * This is used as a fallback when `claude auth status` does not include
  * subscription type information.
  */
-const probeClaudeCapabilities = (binaryPath: string) => {
+const probeClaudeCapabilities = (binaryPath: string, gocodeOverrides?: Record<string, string>) => {
   const abort = new AbortController();
+  const envOverride =
+    gocodeOverrides && Object.keys(gocodeOverrides).length > 0
+      ? { ...process.env, ...gocodeOverrides }
+      : undefined;
   return Effect.tryPromise(async () => {
     const q = claudeQuery({
       prompt: ".",
@@ -478,6 +489,7 @@ const probeClaudeCapabilities = (binaryPath: string) => {
         settingSources: ["user", "project", "local"],
         allowedTools: [],
         stderr: () => {},
+        ...(envOverride ? { env: envOverride } : {}),
       },
     });
     const init = await q.initializationResult();
@@ -501,30 +513,39 @@ const probeClaudeCapabilities = (binaryPath: string) => {
 };
 
 const runClaudeCommand = Effect.fn("runClaudeCommand")(function* (args: ReadonlyArray<string>) {
-  const claudeSettings = yield* Effect.service(ServerSettingsService).pipe(
+  const settings = yield* Effect.service(ServerSettingsService).pipe(
     Effect.flatMap((service) => service.getSettings),
-    Effect.map((settings) => settings.providers.claudeAgent),
   );
+  const claudeSettings = settings.providers.claudeAgent;
+  const gocodeOverrides = buildGocodeEnvOverrides(settings);
   const command = ChildProcess.make(claudeSettings.binaryPath, [...args], {
     shell: process.platform === "win32",
+    ...(Object.keys(gocodeOverrides).length > 0
+      ? { env: { ...process.env, ...gocodeOverrides } }
+      : {}),
   });
   return yield* spawnAndCollect(claudeSettings.binaryPath, command);
 });
 
 export const checkClaudeProviderStatus = Effect.fn("checkClaudeProviderStatus")(function* (
-  resolveSubscriptionType?: (binaryPath: string) => Effect.Effect<string | undefined>,
+  resolveSubscriptionType?: (
+    binaryPath: string,
+    gocodeOverrides?: Record<string, string>,
+  ) => Effect.Effect<string | undefined>,
   resolveSlashCommands?: (
     binaryPath: string,
+    gocodeOverrides?: Record<string, string>,
   ) => Effect.Effect<ReadonlyArray<ServerProviderSlashCommand> | undefined>,
 ): Effect.fn.Return<
   ServerProvider,
   ServerSettingsError,
   ChildProcessSpawner.ChildProcessSpawner | ServerSettingsService
 > {
-  const claudeSettings = yield* Effect.service(ServerSettingsService).pipe(
+  const fullSettings = yield* Effect.service(ServerSettingsService).pipe(
     Effect.flatMap((service) => service.getSettings),
-    Effect.map((settings) => settings.providers.claudeAgent),
   );
+  const claudeSettings = fullSettings.providers.claudeAgent;
+  const gocodeOverrides = buildGocodeEnvOverrides(fullSettings);
   const checkedAt = new Date().toISOString();
   const allModels = providerModelsFromSettings(
     BUILT_IN_MODELS,
@@ -623,7 +644,7 @@ export const checkClaudeProviderStatus = Effect.fn("checkClaudeProviderStatus")(
 
   const slashCommands =
     (resolveSlashCommands
-      ? yield* resolveSlashCommands(claudeSettings.binaryPath).pipe(
+      ? yield* resolveSlashCommands(claudeSettings.binaryPath, gocodeOverrides).pipe(
           Effect.orElseSucceed(() => undefined),
         )
       : undefined) ?? [];
@@ -651,7 +672,7 @@ export const checkClaudeProviderStatus = Effect.fn("checkClaudeProviderStatus")(
   }
 
   if (!subscriptionType && resolveSubscriptionType) {
-    subscriptionType = yield* resolveSubscriptionType(claudeSettings.binaryPath);
+    subscriptionType = yield* resolveSubscriptionType(claudeSettings.binaryPath, gocodeOverrides);
   }
 
   // ── Handle auth results (same logic as before, adjusted models) ──
@@ -766,20 +787,33 @@ export const ClaudeProviderLive = Layer.effect(
     const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
 
     const subscriptionProbeCache = yield* Cache.make({
-      capacity: 1,
+      capacity: 4,
       timeToLive: Duration.minutes(5),
-      lookup: (binaryPath: string) => probeClaudeCapabilities(binaryPath),
+      lookup: (key: string) => {
+        const parsed = JSON.parse(key) as {
+          binaryPath: string;
+          gocodeOverrides?: Record<string, string>;
+        };
+        return probeClaudeCapabilities(parsed.binaryPath, parsed.gocodeOverrides);
+      },
     });
 
+    const getProbe = (binaryPath: string, gocodeOverrides?: Record<string, string>) =>
+      Cache.get(
+        subscriptionProbeCache,
+        JSON.stringify({
+          binaryPath,
+          ...(gocodeOverrides && Object.keys(gocodeOverrides).length > 0
+            ? { gocodeOverrides }
+            : {}),
+        }),
+      );
+
     const checkProvider = checkClaudeProviderStatus(
-      (binaryPath) =>
-        Cache.get(subscriptionProbeCache, binaryPath).pipe(
-          Effect.map((probe) => probe?.subscriptionType),
-        ),
-      (binaryPath) =>
-        Cache.get(subscriptionProbeCache, binaryPath).pipe(
-          Effect.map((probe) => probe?.slashCommands),
-        ),
+      (binaryPath, gocodeOverrides) =>
+        getProbe(binaryPath, gocodeOverrides).pipe(Effect.map((probe) => probe?.subscriptionType)),
+      (binaryPath, gocodeOverrides) =>
+        getProbe(binaryPath, gocodeOverrides).pipe(Effect.map((probe) => probe?.slashCommands)),
     ).pipe(
       Effect.provideService(ServerSettingsService, serverSettings),
       Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),

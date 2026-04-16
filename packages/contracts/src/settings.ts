@@ -80,6 +80,12 @@ export const ObservabilitySettings = Schema.Struct({
 });
 export type ObservabilitySettings = typeof ObservabilitySettings.Type;
 
+export const GocodeSettings = Schema.Struct({
+  baseUrl: TrimmedString.pipe(Schema.withDecodingDefault(Effect.succeed(""))),
+  apiToken: TrimmedString.pipe(Schema.withDecodingDefault(Effect.succeed(""))),
+});
+export type GocodeSettings = typeof GocodeSettings.Type;
+
 export const ServerSettings = Schema.Struct({
   enableAssistantStreaming: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
   defaultThreadEnvMode: ThreadEnvMode.pipe(
@@ -101,6 +107,7 @@ export const ServerSettings = Schema.Struct({
     claudeAgent: ClaudeSettings.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
   }).pipe(Schema.withDecodingDefault(Effect.succeed({}))),
   observability: ObservabilitySettings.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
+  gocode: GocodeSettings.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
 });
 export type ServerSettings = typeof ServerSettings.Type;
 
@@ -168,6 +175,11 @@ const ClaudeSettingsPatch = Schema.Struct({
   launchArgs: Schema.optionalKey(Schema.String),
 });
 
+const GocodeSettingsPatch = Schema.Struct({
+  baseUrl: Schema.optionalKey(Schema.String),
+  apiToken: Schema.optionalKey(Schema.String),
+});
+
 export const ServerSettingsPatch = Schema.Struct({
   enableAssistantStreaming: Schema.optionalKey(Schema.Boolean),
   defaultThreadEnvMode: Schema.optionalKey(ThreadEnvMode),
@@ -185,5 +197,6 @@ export const ServerSettingsPatch = Schema.Struct({
       claudeAgent: Schema.optionalKey(ClaudeSettingsPatch),
     }),
   ),
+  gocode: Schema.optionalKey(GocodeSettingsPatch),
 });
 export type ServerSettingsPatch = typeof ServerSettingsPatch.Type;

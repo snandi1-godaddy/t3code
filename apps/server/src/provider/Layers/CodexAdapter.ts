@@ -39,6 +39,7 @@ import {
 } from "../../codexAppServerManager.ts";
 import { resolveAttachmentPath } from "../../attachmentStore.ts";
 import { ServerConfig } from "../../config.ts";
+import { buildGocodeEnvOverrides } from "../gocodeEnv.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
 import { type EventNdjsonLogger, makeEventNdjsonLogger } from "./EventNdjsonLogger.ts";
 
@@ -1384,8 +1385,7 @@ const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
         });
       }
 
-      const codexSettings = yield* serverSettingsService.getSettings.pipe(
-        Effect.map((settings) => settings.providers.codex),
+      const fullSettings = yield* serverSettingsService.getSettings.pipe(
         Effect.mapError(
           (error) =>
             new ProviderAdapterProcessError({
@@ -1396,6 +1396,8 @@ const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
             }),
         ),
       );
+      const codexSettings = fullSettings.providers.codex;
+      const gocodeOverrides = buildGocodeEnvOverrides(fullSettings);
       const binaryPath = codexSettings.binaryPath;
       const homePath = codexSettings.homePath;
       const managerInput: CodexAppServerStartSessionInput = {
@@ -1406,6 +1408,7 @@ const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
         runtimeMode: input.runtimeMode,
         binaryPath,
         ...(homePath ? { homePath } : {}),
+        ...(Object.keys(gocodeOverrides).length > 0 ? { gocodeEnvOverrides: gocodeOverrides } : {}),
         ...(input.modelSelection?.provider === "codex"
           ? { model: input.modelSelection.model }
           : {}),

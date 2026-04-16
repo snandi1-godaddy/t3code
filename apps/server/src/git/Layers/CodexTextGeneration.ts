@@ -29,6 +29,7 @@ import {
   toJsonSchemaObject,
 } from "../Utils.ts";
 import { getCodexModelCapabilities } from "../../provider/Layers/CodexProvider.ts";
+import { buildGocodeEnvOverrides } from "../../provider/gocodeEnv.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
 import { normalizeCodexModelOptionsWithCapabilities } from "@t3tools/shared/model";
 
@@ -149,10 +150,11 @@ const makeCodexTextGeneration = Effect.gen(function* () {
     );
     const outputPath = yield* writeTempFile(operation, "codex-output", "");
 
-    const codexSettings = yield* Effect.map(
-      serverSettingsService.getSettings,
-      (settings) => settings.providers.codex,
-    ).pipe(Effect.catch(() => Effect.undefined));
+    const fullSettings = yield* serverSettingsService.getSettings.pipe(
+      Effect.catch(() => Effect.undefined),
+    );
+    const codexSettings = fullSettings?.providers.codex;
+    const gocodeOverrides = fullSettings ? buildGocodeEnvOverrides(fullSettings) : {};
 
     const runCodexCommand = Effect.fn("runCodexJson.runCodexCommand")(function* () {
       const normalizedOptions = normalizeCodexModelOptionsWithCapabilities(
@@ -184,6 +186,7 @@ const makeCodexTextGeneration = Effect.gen(function* () {
         {
           env: {
             ...process.env,
+            ...gocodeOverrides,
             ...(codexSettings?.homePath ? { CODEX_HOME: codexSettings.homePath } : {}),
           },
           cwd,
@@ -244,7 +247,10 @@ const makeCodexTextGeneration = Effect.gen(function* () {
           Option.match({
             onNone: () =>
               Effect.fail(
-                new TextGenerationError({ operation, detail: "Codex CLI request timed out." }),
+                new TextGenerationError({
+                  operation,
+                  detail: "Codex CLI request timed out.",
+                }),
               ),
             onSome: () => Effect.void,
           }),

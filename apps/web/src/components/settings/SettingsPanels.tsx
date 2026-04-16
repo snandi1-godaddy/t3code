@@ -344,7 +344,10 @@ function AboutVersionSection() {
       ? !canCheckForUpdate(updateState)
       : isDesktopUpdateButtonDisabled(updateState);
 
-  const actionLabel: Record<string, string> = { download: "Download", install: "Install" };
+  const actionLabel: Record<string, string> = {
+    download: "Download",
+    install: "Install",
+  };
   const statusLabel: Record<string, string> = {
     checking: "Checking…",
     downloading: "Downloading…",
@@ -587,7 +590,10 @@ export function GeneralSettingsPanel() {
           ...existing,
           [target]: "No available editors found.",
         }));
-        setOpeningPathByTarget((existing) => ({ ...existing, [target]: false }));
+        setOpeningPathByTarget((existing) => ({
+          ...existing,
+          [target]: false,
+        }));
         return;
       }
 
@@ -600,7 +606,10 @@ export function GeneralSettingsPanel() {
           }));
         })
         .finally(() => {
-          setOpeningPathByTarget((existing) => ({ ...existing, [target]: false }));
+          setOpeningPathByTarget((existing) => ({
+            ...existing,
+            [target]: false,
+          }));
         });
     },
     [availableEditors],
@@ -1074,6 +1083,74 @@ export function GeneralSettingsPanel() {
             </div>
           }
         />
+      </SettingsSection>
+
+      <SettingsSection title="GoCode Connection">
+        <SettingsRow
+          title="GOCODE_BASE_URL"
+          description="Unified API base URL. Applied as OPENAI_BASE_URL and ANTHROPIC_BASE_URL for all providers."
+          resetAction={
+            settings.gocode.baseUrl !== DEFAULT_UNIFIED_SETTINGS.gocode.baseUrl ? (
+              <SettingResetButton
+                label="GOCODE_BASE_URL"
+                onClick={() =>
+                  updateSettings({
+                    gocode: {
+                      ...settings.gocode,
+                      baseUrl: DEFAULT_UNIFIED_SETTINGS.gocode.baseUrl,
+                    },
+                  })
+                }
+              />
+            ) : null
+          }
+        >
+          <div className="pt-2">
+            <Input
+              value={settings.gocode.baseUrl}
+              onChange={(event) =>
+                updateSettings({
+                  gocode: { ...settings.gocode, baseUrl: event.target.value },
+                })
+              }
+              placeholder="https://..."
+              spellCheck={false}
+            />
+          </div>
+        </SettingsRow>
+        <SettingsRow
+          title="GOCODE_API_TOKEN"
+          description="Unified API token. Applied as OPENAI_API_KEY and ANTHROPIC_AUTH_TOKEN for all providers."
+          resetAction={
+            settings.gocode.apiToken !== DEFAULT_UNIFIED_SETTINGS.gocode.apiToken ? (
+              <SettingResetButton
+                label="GOCODE_API_TOKEN"
+                onClick={() =>
+                  updateSettings({
+                    gocode: {
+                      ...settings.gocode,
+                      apiToken: DEFAULT_UNIFIED_SETTINGS.gocode.apiToken,
+                    },
+                  })
+                }
+              />
+            ) : null
+          }
+        >
+          <div className="pt-2">
+            <Input
+              type="password"
+              value={settings.gocode.apiToken}
+              onChange={(event) =>
+                updateSettings({
+                  gocode: { ...settings.gocode, apiToken: event.target.value },
+                })
+              }
+              placeholder="sk-..."
+              spellCheck={false}
+            />
+          </div>
+        </SettingsRow>
       </SettingsSection>
 
       <SettingsSection

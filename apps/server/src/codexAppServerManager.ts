@@ -125,6 +125,7 @@ export interface CodexAppServerStartSessionInput {
   readonly binaryPath: string;
   readonly homePath?: string;
   readonly runtimeMode: RuntimeMode;
+  readonly gocodeEnvOverrides?: Record<string, string>;
 }
 
 export interface CodexThreadTurnSnapshot {
@@ -465,15 +466,18 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
 
       const codexBinaryPath = input.binaryPath;
       const codexHomePath = input.homePath;
+      const gocodeEnvOverrides = input.gocodeEnvOverrides ?? {};
       this.assertSupportedCodexCliVersion({
         binaryPath: codexBinaryPath,
         cwd: resolvedCwd,
         ...(codexHomePath ? { homePath: codexHomePath } : {}),
+        gocodeEnvOverrides,
       });
       const child = spawn(codexBinaryPath, ["app-server"], {
         cwd: resolvedCwd,
         env: {
           ...process.env,
+          ...gocodeEnvOverrides,
           ...(codexHomePath ? { CODEX_HOME: codexHomePath } : {}),
         },
         stdio: ["pipe", "pipe", "pipe"],
@@ -1080,7 +1084,9 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         this.readString(this.readObject(notification.params)?.thread, "id"),
       );
       if (providerThreadId) {
-        this.updateSession(context, { resumeCursor: { threadId: providerThreadId } });
+        this.updateSession(context, {
+          resumeCursor: { threadId: providerThreadId },
+        });
       }
       return;
     }
@@ -1300,6 +1306,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     readonly binaryPath: string;
     readonly cwd: string;
     readonly homePath?: string;
+    readonly gocodeEnvOverrides?: Record<string, string>;
   }): void {
     assertSupportedCodexCliVersion(input);
   }
@@ -1532,11 +1539,13 @@ function assertSupportedCodexCliVersion(input: {
   readonly binaryPath: string;
   readonly cwd: string;
   readonly homePath?: string;
+  readonly gocodeEnvOverrides?: Record<string, string>;
 }): void {
   const result = spawnSync(input.binaryPath, ["--version"], {
     cwd: input.cwd,
     env: {
       ...process.env,
+      ...(input.gocodeEnvOverrides ? input.gocodeEnvOverrides : {}),
       ...(input.homePath ? { CODEX_HOME: input.homePath } : {}),
     },
     encoding: "utf8",

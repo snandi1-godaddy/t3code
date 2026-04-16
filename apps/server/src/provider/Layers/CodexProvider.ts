@@ -46,6 +46,7 @@ import {
   type CodexAccountSnapshot,
 } from "../codexAccount";
 import { probeCodexDiscovery } from "../codexAppServer";
+import { buildGocodeEnvOverrides } from "../gocodeEnv";
 import { CodexProvider } from "../Services/CodexProvider";
 import { ServerSettingsService } from "../../serverSettings";
 import { ServerSettingsError } from "@t3tools/contracts";
@@ -214,7 +215,10 @@ export function parseAuthStatusFromOutput(result: CommandResult): {
   const parsedAuth = (() => {
     const trimmed = result.stdout.trim();
     if (!trimmed || (!trimmed.startsWith("{") && !trimmed.startsWith("["))) {
-      return { attemptedJsonParse: false as const, auth: undefined as boolean | undefined };
+      return {
+        attemptedJsonParse: false as const,
+        auth: undefined as boolean | undefined,
+      };
     }
     try {
       return {
@@ -222,7 +226,10 @@ export function parseAuthStatusFromOutput(result: CommandResult): {
         auth: extractAuthBoolean(JSON.parse(trimmed)),
       };
     } catch {
-      return { attemptedJsonParse: false as const, auth: undefined as boolean | undefined };
+      return {
+        attemptedJsonParse: false as const,
+        auth: undefined as boolean | undefined,
+      };
     }
   })();
 
@@ -306,6 +313,7 @@ const probeCodexCapabilities = (input: {
   readonly binaryPath: string;
   readonly homePath?: string;
   readonly cwd: string;
+  readonly gocodeEnvOverrides?: Record<string, string>;
 }) =>
   Effect.tryPromise((signal) => probeCodexDiscovery({ ...input, signal })).pipe(
     Effect.timeoutOption(CAPABILITIES_PROBE_TIMEOUT_MS),
@@ -318,13 +326,14 @@ const probeCodexCapabilities = (input: {
 
 const runCodexCommand = Effect.fn("runCodexCommand")(function* (args: ReadonlyArray<string>) {
   const settingsService = yield* ServerSettingsService;
-  const codexSettings = yield* settingsService.getSettings.pipe(
-    Effect.map((settings) => settings.providers.codex),
-  );
+  const settings = yield* settingsService.getSettings;
+  const codexSettings = settings.providers.codex;
+  const gocodeOverrides = buildGocodeEnvOverrides(settings);
   const command = ChildProcess.make(codexSettings.binaryPath, [...args], {
     shell: process.platform === "win32",
     env: {
       ...process.env,
+      ...gocodeOverrides,
       ...(codexSettings.homePath ? { CODEX_HOME: codexSettings.homePath } : {}),
     },
   });
@@ -335,11 +344,13 @@ export const checkCodexProviderStatus = Effect.fn("checkCodexProviderStatus")(fu
   resolveAccount?: (input: {
     readonly binaryPath: string;
     readonly homePath?: string;
+    readonly gocodeEnvOverrides?: Record<string, string>;
   }) => Effect.Effect<CodexAccountSnapshot | undefined>,
   resolveSkills?: (input: {
     readonly binaryPath: string;
     readonly homePath?: string;
     readonly cwd: string;
+    readonly gocodeEnvOverrides?: Record<string, string>;
   }) => Effect.Effect<ReadonlyArray<ServerProviderSkill> | undefined>,
 ): Effect.fn.Return<
   ServerProvider,
@@ -349,10 +360,11 @@ export const checkCodexProviderStatus = Effect.fn("checkCodexProviderStatus")(fu
   | Path.Path
   | ServerSettingsService
 > {
-  const codexSettings = yield* Effect.service(ServerSettingsService).pipe(
+  const fullSettings = yield* Effect.service(ServerSettingsService).pipe(
     Effect.flatMap((service) => service.getSettings),
-    Effect.map((settings) => settings.providers.codex),
   );
+  const codexSettings = fullSettings.providers.codex;
+  const gocodeOverrides = buildGocodeEnvOverrides(fullSettings);
   const checkedAt = new Date().toISOString();
   const models = providerModelsFromSettings(
     BUILT_IN_MODELS,
@@ -462,6 +474,7 @@ export const checkCodexProviderStatus = Effect.fn("checkCodexProviderStatus")(fu
           binaryPath: codexSettings.binaryPath,
           homePath: codexSettings.homePath,
           cwd: process.cwd(),
+          gocodeEnvOverrides: gocodeOverrides,
         }).pipe(Effect.orElseSucceed(() => undefined))
       : undefined) ?? [];
 
@@ -490,6 +503,7 @@ export const checkCodexProviderStatus = Effect.fn("checkCodexProviderStatus")(fu
     ? yield* resolveAccount({
         binaryPath: codexSettings.binaryPath,
         homePath: codexSettings.homePath,
+        gocodeEnvOverrides: gocodeOverrides,
       })
     : undefined;
   const resolvedModels = adjustCodexModelsForAccount(models, account);
@@ -603,12 +617,13 @@ export const CodexProviderLive = Layer.effect(
       capacity: 4,
       timeToLive: Duration.minutes(5),
       lookup: (key: string) => {
-        const [binaryPath, homePath, cwd] = JSON.parse(key) as [string, string | undefined, string];
-        return probeCodexCapabilities({
-          binaryPath,
-          cwd,
-          ...(homePath ? { homePath } : {}),
-        });
+        const parsed = JSON.parse(key) as {
+          binaryPath: string;
+          homePath?: string;
+          cwd: string;
+          gocodeEnvOverrides?: Record<string, string>;
+        };
+        return probeCodexCapabilities(parsed);
       },
     });
 
@@ -616,8 +631,19 @@ export const CodexProviderLive = Layer.effect(
       readonly binaryPath: string;
       readonly homePath?: string;
       readonly cwd: string;
+      readonly gocodeEnvOverrides?: Record<string, string>;
     }) =>
-      Cache.get(accountProbeCache, JSON.stringify([input.binaryPath, input.homePath, input.cwd]));
+      Cache.get(
+        accountProbeCache,
+        JSON.stringify({
+          binaryPath: input.binaryPath,
+          ...(input.homePath ? { homePath: input.homePath } : {}),
+          cwd: input.cwd,
+          ...(input.gocodeEnvOverrides && Object.keys(input.gocodeEnvOverrides).length > 0
+            ? { gocodeEnvOverrides: input.gocodeEnvOverrides }
+            : {}),
+        }),
+      );
 
     const checkProvider = checkCodexProviderStatus(
       (input) =>

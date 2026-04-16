@@ -65,6 +65,7 @@ import {
 
 import { resolveAttachmentPath } from "../../attachmentStore.ts";
 import { ServerConfig } from "../../config.ts";
+import { buildGocodeEnvOverrides } from "../gocodeEnv.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
 import { getClaudeModelCapabilities } from "./ClaudeProvider.ts";
 import {
@@ -966,7 +967,11 @@ const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
     ((input: {
       readonly prompt: AsyncIterable<SDKUserMessage>;
       readonly options: ClaudeQueryOptions;
-    }) => query({ prompt: input.prompt, options: input.options }) as ClaudeQueryRuntime);
+    }) =>
+      query({
+        prompt: input.prompt,
+        options: input.options,
+      }) as ClaudeQueryRuntime);
 
   const sessions = new Map<ThreadId, ClaudeSessionContext>();
   const runtimeEventQueue = yield* Queue.unbounded<ProviderRuntimeEvent>();
@@ -1458,7 +1463,9 @@ const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
             input: tool.input,
           },
         },
-        providerRefs: nativeProviderRefs(context, { providerItemId: tool.itemId }),
+        providerRefs: nativeProviderRefs(context, {
+          providerItemId: tool.itemId,
+        }),
         raw: {
           source: "claude.sdk.message",
           method: "claude/result",
@@ -1651,7 +1658,9 @@ const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
               input: nextTool.input,
             },
           },
-          providerRefs: nativeProviderRefs(context, { providerItemId: nextTool.itemId }),
+          providerRefs: nativeProviderRefs(context, {
+            providerItemId: nextTool.itemId,
+          }),
           raw: {
             source: "claude.sdk.message",
             method: "claude/stream_event/content_block_delta/input_json_delta",
@@ -1740,7 +1749,9 @@ const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
             input: toolInput,
           },
         },
-        providerRefs: nativeProviderRefs(context, { providerItemId: tool.itemId }),
+        providerRefs: nativeProviderRefs(context, {
+          providerItemId: tool.itemId,
+        }),
         raw: {
           source: "claude.sdk.message",
           method: "claude/stream_event/content_block_start",
@@ -1812,7 +1823,9 @@ const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
           ...(tool.detail ? { detail: tool.detail } : {}),
           data: toolData,
         },
-        providerRefs: nativeProviderRefs(context, { providerItemId: tool.itemId }),
+        providerRefs: nativeProviderRefs(context, {
+          providerItemId: tool.itemId,
+        }),
         raw: {
           source: "claude.sdk.message",
           method: "claude/user",
@@ -1835,7 +1848,9 @@ const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
             streamKind,
             delta: toolResult.text,
           },
-          providerRefs: nativeProviderRefs(context, { providerItemId: tool.itemId }),
+          providerRefs: nativeProviderRefs(context, {
+            providerItemId: tool.itemId,
+          }),
           raw: {
             source: "claude.sdk.message",
             method: "claude/user",
@@ -1860,7 +1875,9 @@ const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
           ...(tool.detail ? { detail: tool.detail } : {}),
           data: toolData,
         },
-        providerRefs: nativeProviderRefs(context, { providerItemId: tool.itemId }),
+        providerRefs: nativeProviderRefs(context, {
+          providerItemId: tool.itemId,
+        }),
         raw: {
           source: "claude.sdk.message",
           method: "claude/user",
@@ -2468,7 +2485,10 @@ const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
       const handleAskUserQuestion = Effect.fn("handleAskUserQuestion")(function* (
         context: ClaudeSessionContext,
         toolInput: Record<string, unknown>,
-        callbackOptions: { readonly signal: AbortSignal; readonly toolUseID?: string },
+        callbackOptions: {
+          readonly signal: AbortSignal;
+          readonly toolUseID?: string;
+        },
       ) {
         const requestId = ApprovalRequestId.make(yield* Random.nextUUIDv4);
 
@@ -2729,8 +2749,7 @@ const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
       const canUseTool: CanUseTool = (toolName, toolInput, callbackOptions) =>
         runPromise(canUseToolEffect(toolName, toolInput, callbackOptions));
 
-      const claudeSettings = yield* serverSettingsService.getSettings.pipe(
-        Effect.map((settings) => settings.providers.claudeAgent),
+      const fullSettings = yield* serverSettingsService.getSettings.pipe(
         Effect.mapError(
           (error) =>
             new ProviderAdapterProcessError({
@@ -2741,6 +2760,8 @@ const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
             }),
         ),
       );
+      const claudeSettings = fullSettings.providers.claudeAgent;
+      const gocodeOverrides = buildGocodeEnvOverrides(fullSettings);
       const claudeBinaryPath = claudeSettings.binaryPath;
       const extraArgs = parseCliArgs(claudeSettings.launchArgs).flags;
       const modelSelection =
@@ -2780,7 +2801,7 @@ const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
         ...(newSessionId ? { sessionId: newSessionId } : {}),
         includePartialMessages: true,
         canUseTool,
-        env: process.env,
+        env: { ...process.env, ...gocodeOverrides },
         ...(input.cwd ? { additionalDirectories: [input.cwd] } : {}),
         ...(Object.keys(extraArgs).length > 0 ? { extraArgs } : {}),
       };

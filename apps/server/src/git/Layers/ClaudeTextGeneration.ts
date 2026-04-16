@@ -30,6 +30,7 @@ import {
   toJsonSchemaObject,
 } from "../Utils.ts";
 import { normalizeClaudeModelOptionsWithCapabilities } from "@t3tools/shared/model";
+import { buildGocodeEnvOverrides } from "../../provider/gocodeEnv.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
 import { getClaudeModelCapabilities } from "../../provider/Layers/ClaudeProvider.ts";
 
@@ -95,10 +96,11 @@ const makeClaudeTextGeneration = Effect.gen(function* () {
       ...(normalizedOptions?.fastMode ? { fastMode: true } : {}),
     };
 
-    const claudeSettings = yield* Effect.map(
-      serverSettingsService.getSettings,
-      (settings) => settings.providers.claudeAgent,
-    ).pipe(Effect.catch(() => Effect.undefined));
+    const fullSettings = yield* serverSettingsService.getSettings.pipe(
+      Effect.catch(() => Effect.undefined),
+    );
+    const claudeSettings = fullSettings?.providers.claudeAgent;
+    const gocodeOverrides = fullSettings ? buildGocodeEnvOverrides(fullSettings) : {};
 
     const runClaudeCommand = Effect.fn("runClaudeJson.runClaudeCommand")(function* () {
       const command = ChildProcess.make(
@@ -118,6 +120,9 @@ const makeClaudeTextGeneration = Effect.gen(function* () {
         {
           cwd,
           shell: process.platform === "win32",
+          ...(Object.keys(gocodeOverrides).length > 0
+            ? { env: { ...process.env, ...gocodeOverrides } }
+            : {}),
           stdin: {
             stream: Stream.encodeText(Stream.make(prompt)),
           },
@@ -168,7 +173,10 @@ const makeClaudeTextGeneration = Effect.gen(function* () {
         Option.match({
           onNone: () =>
             Effect.fail(
-              new TextGenerationError({ operation, detail: "Claude CLI request timed out." }),
+              new TextGenerationError({
+                operation,
+                detail: "Claude CLI request timed out.",
+              }),
             ),
           onSome: (value) => Effect.succeed(value),
         }),
