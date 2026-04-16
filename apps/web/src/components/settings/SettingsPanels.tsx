@@ -1087,12 +1087,12 @@ export function GeneralSettingsPanel() {
 
       <SettingsSection title="GoCode Connection">
         <SettingsRow
-          title="GOCODE_BASE_URL"
+          title="GoCode Base URL"
           description="Unified API base URL. Applied as OPENAI_BASE_URL and ANTHROPIC_BASE_URL for all providers."
           resetAction={
             settings.gocode.baseUrl !== DEFAULT_UNIFIED_SETTINGS.gocode.baseUrl ? (
               <SettingResetButton
-                label="GOCODE_BASE_URL"
+                label="GoCode base URL"
                 onClick={() =>
                   updateSettings({
                     gocode: {
@@ -1105,8 +1105,9 @@ export function GeneralSettingsPanel() {
             ) : null
           }
         >
-          <div className="pt-2">
+          <div className="mt-3 w-full">
             <Input
+              className="w-full"
               value={settings.gocode.baseUrl}
               onChange={(event) =>
                 updateSettings({
@@ -1115,16 +1116,17 @@ export function GeneralSettingsPanel() {
               }
               placeholder="https://..."
               spellCheck={false}
+              aria-label="GoCode base URL"
             />
           </div>
         </SettingsRow>
         <SettingsRow
-          title="GOCODE_API_TOKEN"
+          title="GoCode API Token"
           description="Unified API token. Applied as OPENAI_API_KEY and ANTHROPIC_AUTH_TOKEN for all providers."
           resetAction={
             settings.gocode.apiToken !== DEFAULT_UNIFIED_SETTINGS.gocode.apiToken ? (
               <SettingResetButton
-                label="GOCODE_API_TOKEN"
+                label="GoCode API token"
                 onClick={() =>
                   updateSettings({
                     gocode: {
@@ -1137,8 +1139,9 @@ export function GeneralSettingsPanel() {
             ) : null
           }
         >
-          <div className="pt-2">
+          <div className="mt-3 w-full">
             <Input
+              className="w-full"
               type="password"
               value={settings.gocode.apiToken}
               onChange={(event) =>
@@ -1148,6 +1151,7 @@ export function GeneralSettingsPanel() {
               }
               placeholder="sk-..."
               spellCheck={false}
+              aria-label="GoCode API token"
             />
           </div>
         </SettingsRow>
